@@ -1,0 +1,175 @@
+//@version=5
+// @description Fibonacci Martingale Strategy
+// @author Thibault YOU
+strategy("Fibonacci Martingale Strategy", overlay=true, initial_capital=1000, currency=currency.USD, calc_on_every_tick=false, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// Adjustable parameters
+commission_value_pct = 0.1 / 100
+base_order_size_pct = input.float(3.4, title="Base Order Size (%)") / 100
+safety_order_size_pct = input.float(2.1, title="Safety Order Size (%)") / 100
+safety_order_step_scale = input.float(1.7, title="Safety Order Step Scale")
+safety_order_volume_scale = input.float(2.8, title="Safety Order Volume Scale")
+initial_safety_order_distance_pct = input.float(0.89, title="Price Deviation to Open Safety Orders (%)") / 100
+take_profit_percentage = input.float(1.49, title="Take Profit (%)") / 100
+max_safety_orders_count = input.int(7, maxval=8, title="Max Safety Orders Count")
+
+// Variables to store order and capital information
+var float position_price = na
+var float average_price = na
+var float take_profit_price = na
+var float total_order_volume = 0
+var float total_order_cost = 0
+var float capital = strategy.initial_capital
+
+// Initial order sizes
+base_order_size_cash = capital * base_order_size_pct
+safety_order_size_cash = capital * safety_order_size_pct
+
+// Initial order sizes in terms of contracts
+base_order_size = base_order_size_cash / close
+safety_order_size = safety_order_size_cash / close
+
+// Arrays to store safety order prices and their filled status
+var float[] safety_order_prices = array.new_float()
+var bool[] safety_order_filled = array.new_bool()
+
+// Placing the base order
+if (na(position_price)) // If no position exists, place the base order
+    strategy.entry("Long", strategy.long, qty=base_order_size)
+    position_price := close
+    average_price := close
+    take_profit_price := position_price * (1 + take_profit_percentage)
+    total_order_volume := base_order_size
+    total_order_cost := close * base_order_size
+
+    // Placing safety orders
+    float deviation = 0
+    float total_deviation = 0
+    float prev_order_price = position_price
+    float prev_order_volume = safety_order_size
+    
+    for i = 0 to max_safety_orders_count - 1
+        deviation := total_deviation * safety_order_step_scale
+        total_deviation := deviation + initial_safety_order_distance_pct
+        prev_order_price := position_price * (1 - total_deviation)
+        strategy.order(str.tostring(total_deviation * 100) + "%", strategy.long, qty=prev_order_volume, limit=prev_order_price)
+        prev_order_volume := prev_order_volume * safety_order_volume_scale
+
+        // Store safety order prices in the array
+        array.push(safety_order_prices, prev_order_price)
+        array.push(safety_order_filled, false)
+
+// Function to calculate updated values
+update_values(new_order_price, new_order_volume, total_cost, total_volume) =>
+    new_total_cost = total_cost + new_order_price * new_order_volume
+    new_total_volume = total_volume + new_order_volume
+    new_average_price = new_total_cost / new_total_volume
+    new_take_profit_price = new_average_price * (1 + take_profit_percentage)
+    [new_total_cost, new_total_volume, new_average_price, new_take_profit_price]
+
+// Checking if safety orders are filled
+if (not na(position_price)) // If a position exists
+    for i = 0 to array.size(safety_order_prices) - 1
+        if (not array.get(safety_order_filled, i)) and (low <= array.get(safety_order_prices, i))
+            array.set(safety_order_filled, i, true)
+            [new_total_order_cost, new_total_order_volume, new_average_price, new_take_profit_price] = update_values(array.get(safety_order_prices, i), safety_order_size * math.pow(safety_order_volume_scale, i), total_order_cost, total_order_volume)
+            total_order_cost := new_total_order_cost
+            total_order_volume := new_total_order_volume
+            average_price := new_average_price
+            take_profit_price := new_take_profit_price
+
+// Tracking and calculating profits manually
+var float cumulative_profit = 0.0
+if (not na(position_price) and close >= take_profit_price)
+    trade_profit = (total_order_cost * (take_profit_percentage - commission_value_pct))
+    cumulative_profit := cumulative_profit + trade_profit
+    capital := capital + trade_profit
+    // Close all positions and reset values
+    strategy.close_all()
+    position_price := na
+    average_price := na
+    take_profit_price := na
+    total_order_volume := 0
+    total_order_cost := 0
+    array.clear(safety_order_prices)
+    array.clear(safety_order_filled)
+
+// Debugging labels to print variables
+default_precision = "#.###"
+var infos_label = label.new(bar_index, na)
+label.set_color(infos_label, input(title="Bubble background", defval=color.new(color.white, 100)))
+label.set_textcolor(infos_label, input(title="Bubble text", defval=color.white))
+label.set_yloc(infos_label, yloc.abovebar)
+label.set_style(infos_label, label.style_label_lower_left)
+label.set_x(infos_label, bar_index)
+label.set_textalign(infos_label, text.align_left)
+label.set_text(infos_label, "Initial Price: " + str.tostring(position_price) + "$\n" +
+                          "Average Price: " + str.tostring(average_price, default_precision) + "$\n" +
+                          "Take Profit Price: " + str.tostring(take_profit_price, default_precision) + "$\n" +
+                          "Current Order Volume: " + str.tostring(total_order_volume, default_precision) + "\n" +
+                          "Current Order Cost: " + str.tostring(total_order_cost, default_precision) + "$\n" +
+                          "Profit Percentage: " + str.tostring((capital - strategy.initial_capital) / strategy.initial_capital * 100, default_precision) + "%\n" +
+                          "Cumulative Profit: " + str.tostring(cumulative_profit, default_precision) + "$")
+
+// Plotting safety orders and take profit lines
+default_safety_order_color = color.purple
+default_safety_order_color_filled = color.new(color.white, 100)
+
+// Ensure safety order prices and colors arrays are initialized correctly
+var float safety_order_price_1 = na
+var float safety_order_price_2 = na
+var float safety_order_price_3 = na
+var float safety_order_price_4 = na
+var float safety_order_price_5 = na
+var float safety_order_price_6 = na
+var float safety_order_price_7 = na
+var float safety_order_price_8 = na
+
+var color safety_order_color_1 = default_safety_order_color_filled
+var color safety_order_color_2 = default_safety_order_color_filled
+var color safety_order_color_3 = default_safety_order_color_filled
+var color safety_order_color_4 = default_safety_order_color_filled
+var color safety_order_color_5 = default_safety_order_color_filled
+var color safety_order_color_6 = default_safety_order_color_filled
+var color safety_order_color_7 = default_safety_order_color_filled
+var color safety_order_color_8 = default_safety_order_color_filled
+
+if array.size(safety_order_prices) > 0
+    safety_order_price_1 := array.get(safety_order_prices, 0)
+    safety_order_color_1 := array.get(safety_order_filled, 0) ? default_safety_order_color_filled : default_safety_order_color
+if array.size(safety_order_prices) > 1
+    safety_order_price_2 := array.get(safety_order_prices, 1)
+    safety_order_color_2 := array.get(safety_order_filled, 1) ? default_safety_order_color_filled : default_safety_order_color
+if array.size(safety_order_prices) > 2
+    safety_order_price_3 := array.get(safety_order_prices, 2)
+    safety_order_color_3 := array.get(safety_order_filled, 2) ? default_safety_order_color_filled : default_safety_order_color
+if array.size(safety_order_prices) > 3
+    safety_order_price_4 := array.get(safety_order_prices, 3)
+    safety_order_color_4 := array.get(safety_order_filled, 3) ? default_safety_order_color_filled : default_safety_order_color
+if array.size(safety_order_prices) > 4
+    safety_order_price_5 := array.get(safety_order_prices, 4)
+    safety_order_color_5 := array.get(safety_order_filled, 4) ? default_safety_order_color_filled : default_safety_order_color
+if array.size(safety_order_prices) > 5
+    safety_order_price_6 := array.get(safety_order_prices, 5)
+    safety_order_color_6 := array.get(safety_order_filled, 5) ? default_safety_order_color_filled : default_safety_order_color
+if array.size(safety_order_prices) > 6
+    safety_order_price_7 := array.get(safety_order_prices, 6)
+    safety_order_color_7 := array.get(safety_order_filled, 6) ? default_safety_order_color_filled : default_safety_order_color
+if array.size(safety_order_prices) > 7
+    safety_order_price_8 := array.get(safety_order_prices, 7)
+    safety_order_color_8 := array.get(safety_order_filled, 7) ? default_safety_order_color_filled : default_safety_order_color
+
+plot(safety_order_price_1, color=safety_order_color_1, title="SO 1", linewidth=1)
+plot(safety_order_price_2, color=safety_order_color_2, title="SO 2", linewidth=1)
+plot(safety_order_price_3, color=safety_order_color_3, title="SO 3", linewidth=1)
+plot(safety_order_price_4, color=safety_order_color_4, title="SO 4", linewidth=1)
+plot(safety_order_price_5, color=safety_order_color_5, title="SO 5", linewidth=1)
+plot(safety_order_price_6, color=safety_order_color_6, title="SO 6", linewidth=1)
+plot(safety_order_price_7, color=safety_order_color_7, title="SO 7", linewidth=1)
+plot(safety_order_price_8, color=safety_order_color_8, title="SO 8", linewidth=1)
+
+plot(average_price, color=color.blue, title="Average Order Price", linewidth=1)
+plot(take_profit_price, color=color.teal, title="Take Profit Price", linewidth=1)
+plot(position_price, color=color.yellow, title="Initial Order Price", linewidth=1)
+plotchar(strategy.opentrades > strategy.opentrades[1] ? bar_index : na, title="Buy Signal", size=size.tiny, location=location.belowbar, char='▲', color=color.purple)
+plotchar(strategy.closedtrades > strategy.closedtrades[1] ? bar_index : na, title="Close Signal", size=size.tiny, location=location.abovebar, char='▼', color=color.teal)
