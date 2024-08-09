@@ -13,10 +13,15 @@ initial_safety_order_distance_pct = input.float(0.89, title="Price Deviation to 
 take_profit_percentage = input.float(1.49, title="Take Profit (%)") / 100
 max_safety_orders_count = input.int(7, maxval=8, title="Max Safety Orders Count")
 
+// Modified stop loss parameters
+use_stop_loss = input.bool(false, title="Use Stop Loss")
+stop_loss_deviation_pct = input.float(60.0, title="Stop Loss Deviation (%)", minval=0.1) / 100
+
 // Variables to store order and capital information
 var float position_price = na
 var float average_price = na
 var float take_profit_price = na
+var float stop_loss_price = na
 var float total_order_volume = 0
 var float total_order_cost = 0
 var float capital = strategy.initial_capital
@@ -39,6 +44,7 @@ if (na(position_price)) // If no position exists, place the base order
     position_price := close
     average_price := close
     take_profit_price := position_price * (1 + take_profit_percentage)
+    stop_loss_price := use_stop_loss ? position_price * (1 - stop_loss_deviation_pct) : na
     total_order_volume := base_order_size
     total_order_cost := close * base_order_size
 
@@ -77,22 +83,39 @@ if (not na(position_price)) // If a position exists
             total_order_volume := new_total_order_volume
             average_price := new_average_price
             take_profit_price := new_take_profit_price
+            // Note: stop_loss_price remains unchanged as it's fixed to the initial order price
 
 // Tracking and calculating profits manually
 var float cumulative_profit = 0.0
-if (not na(position_price) and close >= take_profit_price)
-    trade_profit = (total_order_cost * (take_profit_percentage - commission_value_pct))
-    cumulative_profit := cumulative_profit + trade_profit
-    capital := capital + trade_profit
-    // Close all positions and reset values
-    strategy.close_all()
-    position_price := na
-    average_price := na
-    take_profit_price := na
-    total_order_volume := 0
-    total_order_cost := 0
-    array.clear(safety_order_prices)
-    array.clear(safety_order_filled)
+if (not na(position_price))
+    if (close >= take_profit_price)
+        trade_profit = (total_order_cost * (take_profit_percentage - commission_value_pct))
+        cumulative_profit := cumulative_profit + trade_profit
+        capital := capital + trade_profit
+        // Close all positions and reset values
+        strategy.close_all()
+        position_price := na
+        average_price := na
+        take_profit_price := na
+        stop_loss_price := na
+        total_order_volume := 0
+        total_order_cost := 0
+        array.clear(safety_order_prices)
+        array.clear(safety_order_filled)
+    else if (use_stop_loss and not na(stop_loss_price) and close <= stop_loss_price)
+        trade_loss = (total_order_cost * (stop_loss_deviation_pct + commission_value_pct))
+        cumulative_profit := cumulative_profit - trade_loss
+        capital := capital - trade_loss
+        // Close all positions and reset values
+        strategy.close_all()
+        position_price := na
+        average_price := na
+        take_profit_price := na
+        stop_loss_price := na
+        total_order_volume := 0
+        total_order_cost := 0
+        array.clear(safety_order_prices)
+        array.clear(safety_order_filled)
 
 // Debugging labels to print variables
 default_precision = "#.###"
@@ -106,6 +129,7 @@ label.set_textalign(infos_label, text.align_left)
 label.set_text(infos_label, "Initial Price: " + str.tostring(position_price) + "$\n" +
                           "Average Price: " + str.tostring(average_price, default_precision) + "$\n" +
                           "Take Profit Price: " + str.tostring(take_profit_price, default_precision) + "$\n" +
+                          (use_stop_loss ? "Stop Loss Price: " + str.tostring(stop_loss_price, default_precision) + "$\n" : "") +
                           "Current Order Volume: " + str.tostring(total_order_volume, default_precision) + "\n" +
                           "Current Order Cost: " + str.tostring(total_order_cost, default_precision) + "$\n" +
                           "Profit Percentage: " + str.tostring((capital - strategy.initial_capital) / strategy.initial_capital * 100, default_precision) + "%\n" +
@@ -171,5 +195,6 @@ plot(safety_order_price_8, color=safety_order_color_8, title="SO 8", linewidth=1
 plot(average_price, color=color.blue, title="Average Order Price", linewidth=1)
 plot(take_profit_price, color=color.teal, title="Take Profit Price", linewidth=1)
 plot(position_price, color=color.yellow, title="Initial Order Price", linewidth=1)
+plot(use_stop_loss ? stop_loss_price : na, color=color.red, title="Stop Loss Price", linewidth=1)
 plotchar(strategy.opentrades > strategy.opentrades[1] ? bar_index : na, title="Buy Signal", size=size.tiny, location=location.belowbar, char='▲', color=color.purple)
 plotchar(strategy.closedtrades > strategy.closedtrades[1] ? bar_index : na, title="Close Signal", size=size.tiny, location=location.abovebar, char='▼', color=color.teal)

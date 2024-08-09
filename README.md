@@ -12,6 +12,7 @@ Key features of the strategy:
 - 🔄 Adjustable safety order step scale and volume scale
 - 💰 Configurable take profit percentage
 - ⛔ Maximum number of safety orders limit
+- 🛑 Optional stop-loss functionality to limit potential losses
 
 ## ⚙️ Parameters
 
@@ -24,10 +25,12 @@ The strategy includes the following adjustable parameters:
 - `Price Deviation to Open Safety Orders (%)`: The percentage deviation from the initial entry price at which safety orders will be placed.
 - `Take Profit (%)`: The percentage above the average entry price at which the strategy will close all positions and take profit.
 - `Max Safety Orders Count`: The maximum number of safety orders allowed (up to 8).
+- `Use Stop Loss`: A boolean option to enable or disable the stop-loss feature.
+- `Stop Loss Deviation (%)`: The percentage deviation from the initial order price at which the stop-loss will be triggered.
 
 ## ⚠️ Risk Management
 
-Please note that the Fibonacci Martingale Strategy involves a high level of risk. The martingale approach can lead to significant losses if the price continues to move against the position and the maximum number of safety orders is reached. It is crucial to understand the risks involved and use the strategy with caution.
+Please note that the Fibonacci Martingale Strategy involves a high level of risk. The martingale approach can lead to significant losses if the price continues to move against the position and the maximum number of safety orders is reached. The newly added stop-loss feature can mitigate some of these risks by closing the position at a predefined loss level, thereby limiting potential losses. However, it is crucial to understand the risks involved and use the strategy with caution.
 
 ## 🛠️ Installation
 
